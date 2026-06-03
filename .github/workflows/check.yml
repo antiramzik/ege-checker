@@ -1,0 +1,56 @@
+name: Проверка результатов ЕГЭ
+
+on:
+  schedule:
+    # GitHub сильно «прореживает» частые расписания (реально раз в 2–5 ч). Поэтому
+    # сам запуск ниже крутится циклом ~5,5 ч и проверяет каждые 15 минут изнутри,
+    # а расписание лишь перезапускает этот цикл. cancel-in-progress гарантирует,
+    # что активен всегда ровно один цикл (без накопления очереди).
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ege-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установить зависимости
+        run: pip install requests certifi
+
+      - name: Проверять каждые 15 минут (цикл ~5,5 ч)
+        env:
+          EGE_SURNAME:        ${{ secrets.EGE_SURNAME }}
+          EGE_NAME:           ${{ secrets.EGE_NAME }}
+          EGE_PATRONYMIC:     ${{ secrets.EGE_PATRONYMIC }}
+          EGE_DOC_NUMBER:     ${{ secrets.EGE_DOC_NUMBER }}
+          EGE_REG_CODE:       ${{ secrets.EGE_REG_CODE }}
+          EGE_REGION:         ${{ secrets.EGE_REGION }}
+          EGE_CAPTCHA_SOLVER: capmonster
+          CAPMONSTER_KEY:     ${{ secrets.CAPMONSTER_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          git config user.name  "ege-bot"
+          git config user.email "ege-bot@users.noreply.github.com"
+          deadline=$(( $(date +%s) + 20100 ))   # ~5 ч 35 мин, затем job завершится и расписание перезапустит
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            python checker.py --once || true
+            # сохранить state.json в репозиторий, только если изменился (новый результат)
+            if ! git diff --quiet -- state.json; then
+              git commit -m "обновление state" -- state.json && git push || true
+            fi
+            sleep 870
+          done

@@ -1,0 +1,25 @@
+{
+  "surname": "Иванов",
+  "name": "Иван",
+  "patronymic": "Иванович",
+
+  "_комментарий_данные": "Заполните РОВНО ОДНО: либо reg_code (код регистрации), либо doc_number (номер документа без серии). Второе оставьте пустым.",
+  "reg_code": "",
+  "doc_number": "1234567",
+
+  "_комментарий_регион": "Название (см. regions.json) или номер. Примеры: 'г. Москва', 'Республика Татарстан', 77.",
+  "region": "г. Москва",
+
+  "_комментарий_капча": "capmonster = надёжно (рекомендуется), нужен capmonster_key. ocr = бесплатно (Tesseract), но эту капчу читает плохо.",
+  "captcha_solver": "capmonster",
+  "capmonster_key": "ВСТАВЬ_КЛЮЧ_CAPMONSTER",
+
+  "interval_seconds": 900,
+
+  "notify": {
+    "sound": true,
+    "macos_notification": true,
+    "telegram_bot_token": "",
+    "telegram_chat_id": ""
+  }
+}

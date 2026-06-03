@@ -1,0 +1,12 @@
+# Личные данные и ключи — НЕ выкладывать в публичный репозиторий!
+config.json
+config.backup.json
+
+# Локальные настройки Claude
+.claude/
+
+# Генерируемые файлы
+ca_bundle.pem
+bot.log
+__pycache__/
+*.pyc
