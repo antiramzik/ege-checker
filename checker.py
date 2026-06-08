@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import time
+import html
 import random
 import hashlib
 import tempfile
@@ -397,7 +398,9 @@ def fetch_exams(session):
 # ──────────────────────────────────────────────────────────────────────────
 # Уведомления
 # ──────────────────────────────────────────────────────────────────────────
-def notify(cfg, title, message, loud=False):
+def notify(cfg, title, message, loud=False, tg_html=None):
+    """Уведомление. message — обычный текст (лог/macOS). Если задан tg_html —
+    в Telegram уходит он (HTML), что позволяет прятать балл под спойлер."""
     n = cfg.get("notify", {})
     # macOS: всплывающее уведомление
     if n.get("macos_notification", True) and sys.platform == "darwin":
@@ -420,10 +423,14 @@ def notify(cfg, title, message, loud=False):
     tok = n.get("telegram_bot_token", "")
     chat = n.get("telegram_chat_id", "")
     if tok and chat:
+        if tg_html is not None:
+            payload = {"chat_id": chat, "text": f"<b>{html.escape(title)}</b>\n{tg_html}",
+                       "parse_mode": "HTML"}
+        else:
+            payload = {"chat_id": chat, "text": f"{title}\n{message}"}
         try:
             requests.post(f"https://api.telegram.org/bot{tok}/sendMessage",
-                          json={"chat_id": chat, "text": f"{title}\n{message}"},
-                          timeout=20, verify=build_ca_bundle())
+                          json=payload, timeout=20, verify=build_ca_bundle())
         except Exception as e:
             log(f"Telegram: {e}")
 
@@ -549,14 +556,19 @@ def handle_results(session, cfg, state):
     scored_seen = set(state.get("results_seen", []))
     hidden_seen = set(state.get("hidden_seen", []))
 
-    new_msgs = []
+    new_msgs = []   # для лога (балл виден)
+    new_html = []   # для Telegram (балл под спойлером)
     for rid, subject, date, st, txt in rows:
         if rid is None:
             continue
         if st == "scored" and rid not in scored_seen:
             new_msgs.append(f"🎉 {subject}: {txt}")
+            # сам балл прячем под спойлер — в группе будет заблюрен, тап открывает
+            new_html.append(f"🎉 {html.escape(subject)}: <tg-spoiler>{html.escape(txt)}</tg-spoiler>")
         elif st == "hidden" and rid not in hidden_seen:
-            new_msgs.append(f"🔒 {subject}: результат пришёл, на утверждении в ГЭК — скоро балл")
+            msg = f"🔒 {subject}: результат пришёл, на утверждении в ГЭК — скоро балл"
+            new_msgs.append(msg)
+            new_html.append(f"🔒 {html.escape(subject)}: результат пришёл, на утверждении в ГЭК — скоро балл")
 
     # обновляем «виденное» (после сравнения)
     state["results_seen"] = sorted({rid for rid, _, _, st, _ in rows if st == "scored" and rid is not None})
@@ -565,7 +577,8 @@ def handle_results(session, cfg, state):
 
     if new_msgs:
         log("🔔 ИЗМЕНЕНИЯ: " + "; ".join(new_msgs))
-        notify(cfg, "ЕГЭ: обновление результатов", "\n".join(new_msgs), loud=True)
+        notify(cfg, "ЕГЭ: обновление результатов", "\n".join(new_msgs),
+               loud=True, tg_html="\n".join(new_html))
     else:
         cur = "; ".join(f"{s}={st}" for _id, s, d, st, t in rows if st != "none")
         log("Без новых изменений" + (f" ({cur})" if cur else ""))
