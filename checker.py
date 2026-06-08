@@ -469,6 +469,14 @@ def one_cycle(session, cfg, state, max_captcha_tries=8):
             raw_text, meta = solve_captcha(cfg, image_b64)
         except Exception as e:
             log(f"Ошибка решения капчи: {e}")
+            # один раз предупредим в Telegram, чтобы простой не остался незамеченным
+            if not state.get("captcha_error_notified"):
+                hint = (" Похоже, закончился баланс CapMonster — пополни на capmonster.cloud."
+                        if "ZERO_BALANCE" in str(e) else "")
+                notify(cfg, "⚠️ ЕГЭ-бот не может проверять",
+                       f"Капча не решается: {e}.{hint}", loud=True)
+                state["captcha_error_notified"] = True
+                save_state(state)
             return False
 
         captcha_text = re.sub(r"\D+", "", raw_text or "")   # капча сайта — ровно 6 цифр
@@ -477,6 +485,11 @@ def one_cycle(session, cfg, state, max_captcha_tries=8):
             report_bad_captcha(cfg, meta)
             continue
 
+        # капча решилась — если раньше был сбой, сообщим о восстановлении
+        if state.get("captcha_error_notified"):
+            state["captcha_error_notified"] = False
+            save_state(state)
+            notify(cfg, "✅ ЕГЭ-бот снова работает", "Капча решается, проверки возобновлены.")
         log(f"Капча решена: {captcha_text} [{meta['solver']}] (попытка {attempt}/{max_captcha_tries})")
         status, body = try_login(session, cfg, captcha_text, token)
 
