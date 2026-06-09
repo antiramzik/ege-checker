@@ -43,6 +43,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          # GitHub иногда забирает раннер (SIGTERM, exit 143) — ловим, чтобы выйти ЧИСТО
+          # (без письма «failed»); расписание перезапустит цикл.
+          trap 'echo "Получен сигнал остановки — выходим чисто."; exit 0' TERM INT
           git config user.name  "ege-bot"
           git config user.email "ege-bot@users.noreply.github.com"
           deadline=$(( $(date +%s) + 20100 ))   # ~5 ч 35 мин, затем job завершится и расписание перезапустит
@@ -52,5 +55,5 @@ jobs:
             if ! git diff --quiet -- state.json; then
               git commit -m "обновление state" -- state.json && git push || true
             fi
-            sleep 870
+            sleep 870 || true
           done
