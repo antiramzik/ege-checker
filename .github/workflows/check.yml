@@ -40,6 +40,7 @@ jobs:
           EGE_REGION:         ${{ secrets.EGE_REGION }}
           EGE_CAPTCHA_SOLVER: capmonster
           CAPMONSTER_KEY:     ${{ secrets.CAPMONSTER_KEY }}
+          ORB_PASSWORD:       ${{ secrets.ORB_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
@@ -49,11 +50,16 @@ jobs:
           git config user.name  "ege-bot"
           git config user.email "ege-bot@users.noreply.github.com"
           deadline=$(( $(date +%s) + 20100 ))   # ~5 ч 35 мин, затем job завершится и расписание перезапустит
+          i=0
           while [ "$(date +%s)" -lt "$deadline" ]; do
-            python checker.py --once || true
-            # сохранить state.json в репозиторий, только если изменился (новый результат)
-            if ! git diff --quiet -- state.json; then
-              git commit -m "обновление state" -- state.json && git push || true
+            python orb_checker.py --once || true            # gia.orb.ru — каждые ~5 мин (без капчи)
+            if [ $(( i % 3 )) -eq 0 ]; then
+              python checker.py --once || true              # checkege.rustest.ru — каждые ~15 мин (капча/CapMonster)
             fi
-            sleep 870 || true
+            # сохранить состояние в репозиторий, только если изменилось (новый результат)
+            if ! git diff --quiet -- state.json orb_state.json; then
+              git commit -m "обновление состояния" -- state.json orb_state.json && git push || true
+            fi
+            i=$(( i + 1 ))
+            sleep 300 || true
           done
