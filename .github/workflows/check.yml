@@ -49,17 +49,5 @@ jobs:
           trap 'echo "Получен сигнал остановки — выходим чисто."; exit 0' TERM INT
           git config user.name  "ege-bot"
           git config user.email "ege-bot@users.noreply.github.com"
-          deadline=$(( $(date +%s) + 20100 ))   # ~5 ч 35 мин, затем job завершится и расписание перезапустит
-          i=0
-          while [ "$(date +%s)" -lt "$deadline" ]; do
-            python orb_checker.py --once || true            # gia.orb.ru — каждые ~5 мин (без капчи)
-            if [ $(( i % 3 )) -eq 0 ]; then
-              python checker.py --once || true              # checkege.rustest.ru — каждые ~15 мин (капча/CapMonster)
-            fi
-            # сохранить состояние в репозиторий, только если изменилось (новый результат)
-            if ! git diff --quiet -- state.json orb_state.json; then
-              git commit -m "обновление состояния" -- state.json orb_state.json && git push || true
-            fi
-            i=$(( i + 1 ))
-            sleep 300 || true
-          done
+          # bot_serve сам: авто-проверки (ОГЭ ~5 мин, ЕГЭ ~15 мин) + ответ на /check в Telegram
+          python bot_serve.py --deadline $(( $(date +%s) + 20100 ))

@@ -463,6 +463,28 @@ def describe_exams(data):
     return rows
 
 
+def fetch_rows(cfg, max_captcha_tries=8):
+    """Войти и вернуть текущие строки экзаменов (для команды /check). Не уведомляет.
+    Возвращает список rows; [] — если «участник не найден». Бросает при ошибке."""
+    session = new_session()
+    for _ in range(max_captcha_tries):
+        image_b64, token = get_captcha(session)
+        raw, meta = solve_captcha(cfg, image_b64)
+        text = re.sub(r"\D+", "", raw or "")
+        if len(text) != 6:
+            report_bad_captcha(cfg, meta)
+            continue
+        status, body = try_login(session, cfg, text, token)
+        if 200 <= status < 300:
+            return describe_exams(fetch_exams(session))
+        if status == 401:
+            return []   # участник не найден / результатов пока нет
+        if status == 400 and "картинк" in body:
+            continue
+        raise RuntimeError(f"вход не выполнен ({status})")
+    raise RuntimeError("капча не решилась")
+
+
 def one_cycle(session, cfg, state, max_captcha_tries=8):
     """Один полный проход: капча → логин → (если успех) результаты. Возвращает True, если нужно остановить бота."""
     for attempt in range(1, max_captcha_tries + 1):

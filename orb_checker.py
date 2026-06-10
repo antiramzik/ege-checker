@@ -75,6 +75,13 @@ def parse(page):
     return count, results
 
 
+def fetch(surname, password):
+    """Войти и вернуть (count, results). Для команды /check и авто-проверки."""
+    session = requests.Session()
+    session.headers.update({"User-Agent": checker.UA})
+    return parse(login(session, surname, password))
+
+
 def key_hash(r):
     # в state храним только хэш (без предмета/балла) — чтобы публичный репозиторий не светил результаты
     return hashlib.md5(f"{r['date']}|{r['subject']}".encode("utf-8")).hexdigest()[:10]
@@ -104,15 +111,12 @@ def main():
     if not surname or not password:
         sys.exit("Нет данных для gia.orb.ru (ORB_SURNAME/ORB_PASSWORD или config.json).")
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": checker.UA})
     try:
-        page = login(session, surname, password)
+        count, results = fetch(surname, password)
     except Exception as e:
         checker.log(f"[orb] ошибка входа: {e}")
         return
 
-    count, results = parse(page)
     checker.log(f"[orb] Найденные результаты: {count}")
     for r in results:
         checker.log(f"[orb]   {r['date']} {r['subject']}: {r['score']} ({r['status']})")
