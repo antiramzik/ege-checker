@@ -18,10 +18,8 @@ import time
 
 import requests
 import checker
-import orb_checker
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ORB_INTERVAL = int(os.environ.get("ORB_INTERVAL", "300"))    # 5 мин
 EGE_INTERVAL = int(os.environ.get("EGE_INTERVAL_SEC", "900"))  # 15 мин
 API = "https://api.telegram.org/bot{}/{}"
 
@@ -63,35 +61,25 @@ def get_updates(offset, timeout=30):
         return []
 
 
-def build_summary(cfg, surname, orb_pw):
-    blocks = []
+# нас интересуют только эти предметы ЕГЭ
+WANT = ("литератур", "русск", "математ")
+
+
+def build_summary(cfg):
     icon = {"scored": "✅", "hidden": "🔒", "none": "⏳"}
-    # ── ЕГЭ ──
     try:
-        rows = checker.fetch_rows(cfg)
-        if rows:
-            lines = ["<b>ЕГЭ (checkege.rustest.ru):</b>"]
-            for _id, subj, date, st, txt in rows:
-                if st == "scored":
-                    lines.append(f"{icon[st]} {html.escape(subj)}: <tg-spoiler>{html.escape(txt)}</tg-spoiler>")
-                else:
-                    lines.append(f"{icon[st]} {html.escape(subj)}: {html.escape(txt)}")
-            blocks.append("\n".join(lines))
+        rows = [r for r in checker.fetch_rows(cfg) if any(w in r[1].lower() for w in WANT)]
+    except Exception as e:
+        return f"Не удалось проверить: {html.escape(str(e))}"
+    if not rows:
+        return "Результатов пока нет (Литература / Русский язык / Математика)."
+    lines = ["<b>Результаты ЕГЭ:</b>"]
+    for _id, subj, date, st, txt in rows:
+        if st == "scored":
+            lines.append(f"{icon[st]} {html.escape(subj)}: <tg-spoiler>{html.escape(txt)}</tg-spoiler>")
         else:
-            blocks.append("<b>ЕГЭ:</b> участник не найден / результатов пока нет")
-    except Exception as e:
-        blocks.append(f"<b>ЕГЭ:</b> не удалось проверить ({html.escape(str(e))})")
-    # ── ОГЭ (gia.orb.ru) ──
-    try:
-        count, results = orb_checker.fetch(surname, orb_pw)
-        lines = [f"<b>ОГЭ (gia.orb.ru), найдено {count}:</b>"]
-        for r in results:
-            lines.append(f"📊 {html.escape(r['subject'])} ({r['date']}): "
-                         f"<tg-spoiler>{html.escape(r['score'])} балл(ов)</tg-spoiler>")
-        blocks.append("\n".join(lines))
-    except Exception as e:
-        blocks.append(f"<b>ОГЭ:</b> не удалось проверить ({html.escape(str(e))})")
-    return "\n\n".join(blocks)
+            lines.append(f"{icon[st]} {html.escape(subj)}: {html.escape(txt)}")
+    return "\n".join(lines)
 
 
 def is_check_command(update):
@@ -105,12 +93,11 @@ def is_check_command(update):
 def commit_state():
     """Зафиксировать state.json/orb_state.json в репозитории, если изменились."""
     try:
-        changed = subprocess.run(["git", "diff", "--quiet", "--", "state.json", "orb_state.json"],
+        changed = subprocess.run(["git", "diff", "--quiet", "--", "state.json"],
                                  cwd=HERE).returncode != 0
         if changed:
-            subprocess.run(["git", "commit", "-m", "обновление состояния", "--",
-                            "state.json", "orb_state.json"], cwd=HERE,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "commit", "-m", "обновление состояния", "--", "state.json"],
+                           cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(["git", "push"], cwd=HERE,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
@@ -120,16 +107,6 @@ def commit_state():
 def run(script):
     subprocess.run([sys.executable, os.path.join(HERE, script), "--once"], cwd=HERE)
     commit_state()
-
-
-def resolve_orb():
-    surname = os.environ.get("ORB_SURNAME") or os.environ.get("EGE_SURNAME") or ""
-    password = os.environ.get("ORB_PASSWORD") or ""
-    if (not surname or not password) and os.path.exists(checker.CONFIG_PATH):
-        c = json.load(open(checker.CONFIG_PATH, encoding="utf-8"))
-        surname = surname or c.get("surname", "")
-        password = password or c.get("orb_password", "") or c.get("doc_number", "")
-    return surname, password
 
 
 def main():
@@ -142,22 +119,16 @@ def main():
     cfg = checker.load_config()
     TOKEN = cfg.get("notify", {}).get("telegram_bot_token", "")
     allowed_chat = str(cfg.get("notify", {}).get("telegram_chat_id", ""))
-    surname, orb_pw = resolve_orb()
 
-    checker.log(f"[serve] старт. /check {'включён' if TOKEN else 'выключен (нет токена)'}; "
-                f"авто: ОГЭ/{ORB_INTERVAL}с, ЕГЭ/{EGE_INTERVAL}с")
+    checker.log(f"[serve] старт. /check {'включён' if TOKEN else 'выключен'}; авто-ЕГЭ/{EGE_INTERVAL}с")
 
     offset = drain_backlog() if TOKEN else 0
-    last_orb = 0.0
     last_ege = 0.0
 
     while time.time() < deadline:
         now = time.time()
-        if now - last_orb >= ORB_INTERVAL:
-            run("orb_checker.py")
-            last_orb = now
         if now - last_ege >= EGE_INTERVAL:
-            run("checker.py")
+            run("checker.py")          # авто-проверка ЕГЭ (~15 мин), уведомляет о новых результатах
             last_ege = now
 
         if not TOKEN:
@@ -169,8 +140,8 @@ def main():
             ischeck, chat_id = is_check_command(u)
             if ischeck and (not allowed_chat or str(chat_id) == allowed_chat):
                 checker.log(f"[serve] /check от {chat_id}")
-                tg_send(chat_id, "⏳ Проверяю результаты…")
-                tg_send(chat_id, build_summary(cfg, surname, orb_pw))
+                tg_send(chat_id, "⏳ Проверяю результаты ЕГЭ…")
+                tg_send(chat_id, build_summary(cfg))
 
 
 TOKEN = ""
