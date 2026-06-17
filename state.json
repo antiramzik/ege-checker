@@ -3,5 +3,6 @@
     23,
     178
   ],
-  "hidden_seen": []
+  "hidden_seen": [],
+  "captcha_error_notified": true
 }
